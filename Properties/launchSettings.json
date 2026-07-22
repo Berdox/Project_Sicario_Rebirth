@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "Project_Sicario_Rebirth": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    }
+  }
+}

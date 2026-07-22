@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="lib/NetPak/EpicGames.Oodle/EpicGames.Oodle.csproj" />
+  <Project Path="lib/NetPak/NetPak/NetPak.csproj">
+    <Platform Project="x64" />
+  </Project>
+  <Project Path="Project_Sicario_Rebirth.csproj" />
+  <Project Path="src/Sicario_Rebirth.Core/Sicario_Rebirth.Core.csproj" />
+</Solution>

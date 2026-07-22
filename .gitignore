@@ -55,3 +55,69 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+lib/
+
+
+## Visual Studio Build and Release Outputs
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+[Ll]og/
+[Ll]ogs/
+[Gg]enerated/
+[Tt]emp/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+build/
+
+## Visual Studio Cache and Settings
+.vs/
+*.user
+*.userosv
+*.suo
+*.userlibraries
+*.aps
+*.ncb
+*.cache
+*.ilk
+*.idb
+*.pbd
+*.pch
+*.pdb
+*.ipch
+*.sdf
+*.opensdf
+*.tlog
+*.[Dd]b
+*.VC.db
+*.VC.VC.opendb
+
+## Visual Studio Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+## NuGet Packages & Restores
+*.nuget.props
+*.nuget.targets
+packages/
+*.nupkg
+
+## C++ / CMake specific
+CMakeLists.txt.user
+CMakeCache.txt
+CMakeFiles/
+CMakeOutput.log
+CMakeError.log
+
+## ReSharper / Rider / JetBrains
+_ReSharper*/
+*.StackTrace.txt
+
+## OS Generated Files
+.DS_Store
+Thumbs.db
