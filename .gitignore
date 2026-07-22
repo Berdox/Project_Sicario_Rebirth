@@ -74,6 +74,7 @@ x86/
 [Aa]rm/
 [Aa]rm64/
 build/
+[Pp]roperties/
 
 ## Visual Studio Cache and Settings
 .vs/
