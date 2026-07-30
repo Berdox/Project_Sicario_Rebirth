@@ -1,4 +1,6 @@
 <Solution>
   <Project Path="Project_Sicario_Rebirth.csproj" />
+  <Project Path="src/Sicario_Rebirth.AssetPatcher/Sicario_Rebirth.AssetPatcher.csproj" Id="647667df-97f1-4b5d-9067-eab003a52b3c" />
   <Project Path="src/Sicario_Rebirth.Core/Sicario_Rebirth.Core.csproj" />
+  <Project Path="src/Sicario_Rebirth.Parser/Sicario_Rebirth.Parser.csproj" Id="d1948c6d-fff6-432a-a7eb-b6ce5801ed28" />
 </Solution>

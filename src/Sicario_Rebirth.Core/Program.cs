@@ -173,210 +173,296 @@ using UAssetAPI.ExportTypes;
 using UAssetAPI.PropertyTypes.Objects;
 using UAssetAPI.PropertyTypes.Structs;
 using UAssetAPI.UnrealTypes;
+using Sicario_Rebirth.Parser;
+using Sicario_Rebirth.AssetPatcher;
 
 class Program {
     static void Main(string[] args) {
+
+        //var modManager = new ModManager();
+
+        //modManager.LoadManifestDirectory("G:\\SteamLibrary\\steamapps\\common\\Project Wingman\\ProjectWingman\\Content\\Paks\\~mods\\");
+
+        //modManager.ListMods();
+
+
         string paksDirectory = @"G:\SteamLibrary\steamapps\common\Project Wingman\ProjectWingman\Content\Paks";
-        string targetFileName = "DB_Aircraft.uasset";
+        string repakExePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lib", "repak", "repak.exe");
 
-        // =========================================================================
-        // STEP 1: Extract .uasset and .uexp with CUE4Parse
-        // =========================================================================
-        Console.WriteLine("[1/3] Extracting target asset with CUE4Parse...");
+        // 2. Instantiate the patcher
+        var patcher = new AssetPatcher(paksDirectory, repakExePath);
 
-        var provider = new DefaultFileProvider(
-            directory: paksDirectory,
-            searchOption: SearchOption.TopDirectoryOnly,
-            versions: new VersionContainer(EGame.GAME_UE4_24), // Project Wingman uses UE 4.27
-            pathComparer: StringComparer.OrdinalIgnoreCase
-        );
-
-        // Register specific PAK file if present
-        FileInfo specificPak = new FileInfo(Path.Combine(paksDirectory, "ProjectWingman-WindowsNoEditor.pak"));
-        if (specificPak.Exists) {
-            provider.RegisterVfs(specificPak);
+        try {
+            // 3. Run the complete pipeline by passing:
+            //    - Target asset name inside the PAK
+            //    - The property mutation function/delegate
+            //    - Target output PAK filename
+            patcher.PatchAndRepak(
+                targetFileName: "DB_Aircraft.uasset",
+                patchAction: ModifyPropertyRecursive,
+                outputPakName: "ProjectWingman-SpeedMod_P.pak"
+            );
+        }
+        catch (Exception ex) {
+            Console.WriteLine($"\n[ERROR] Mod creation failed: {ex.Message}");
         }
 
-        // Initialize and index VFS contents
-        provider.Initialize();
-        provider.Mount();
-
-        Console.WriteLine($"Mounted {provider.MountedVfs.Count} PAK file(s).");
-        Console.WriteLine($"Total files found across all PAKs: {provider.Files.Count}\n");
-
-        // Locate the primary .uasset file dynamically in provider.Files
-        var matchedEntry = provider.Files.FirstOrDefault(file => file.Key.EndsWith(targetFileName, StringComparison.OrdinalIgnoreCase));
-
-        if (matchedEntry.Value == null) {
-            throw new FileNotFoundException($"Could not locate '{targetFileName}' inside mounted PAK files.");
-        }
-
-        string exactInternalPath = matchedEntry.Key;
-        Console.WriteLine($"Found target path in PAK: {exactInternalPath}");
-
-        // Resolve base internal path without extension
-        string basePathWithoutExtension = exactInternalPath.Substring(0, exactInternalPath.LastIndexOf('.'));
-
-        // Extract .uasset bytes
-        byte[] uassetBytes = provider.SaveAsset(basePathWithoutExtension + ".uasset");
-        if (uassetBytes == null) {
-            throw new InvalidOperationException($"Failed to extract .uasset data for {basePathWithoutExtension}.uasset");
-        }
-
-        // Extract .uexp bytes if present
-        byte[] uexpBytes = null;
-        string uexpPath = basePathWithoutExtension + ".uexp";
-        if (provider.Files.ContainsKey(uexpPath)) {
-            uexpBytes = provider.SaveAsset(uexpPath);
-        }
-
-        Console.WriteLine($"Successfully extracted .uasset ({uassetBytes.Length} bytes) and .uexp ({uexpBytes?.Length ?? 0} bytes).");
-
-        // =========================================================================
-        // STEP 2: Combine Streams and Parse with UAssetAPI
-        // =========================================================================
-        Console.WriteLine("[2/3] Modifying asset properties with UAssetAPI...");
-
-        // Combine .uasset + .uexp into one continuous stream for UAssetAPI
-        MemoryStream combinedStream = new MemoryStream();
-        combinedStream.Write(uassetBytes, 0, uassetBytes.Length);
-        if (uexpBytes != null) {
-            combinedStream.Write(uexpBytes, 0, uexpBytes.Length);
-        }
-        combinedStream.Position = 0; // Reset stream pointer to beginning
-
-        // Instantiate UAsset with UE4.27
-        UAsset asset;
-        using (AssetBinaryReader reader = new AssetBinaryReader(combinedStream)) {
-            asset = new UAsset(reader, EngineVersion.VER_UE4_24);
-        }
-
-        Console.WriteLine($"Successfully loaded asset! Found {asset.Exports.Count} export(s).");
-
-        // Modify DataTable export properties
-        foreach (Export export in asset.Exports) {
-            if (export is DataTableExport dataTableExport) {
-                // DataTable row data lives inside dataTableExport.Table.Data
-                foreach (StructPropertyData row in dataTableExport.Table.Data) {
-                    foreach (PropertyData rowProp in row.Value) {
-                        ModifyPropertyRecursive(rowProp);
-                    }
-                }
-            }
-        }
-
-        // =========================================================================
-        // STEP 3: Save the modified asset back out
-        // =========================================================================
-        Console.WriteLine("[3/3] Saving modified asset...");
-
-        string baseFileName = Path.GetFileNameWithoutExtension(targetFileName);
-        string outputBasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Modified_" + baseFileName);
-
-        asset.UseSeparateBulkDataFiles = true;
-
-        // Write() automatically creates "Modified_DB_Aircraft.uasset" and "Modified_DB_Aircraft.uexp"
-        asset.Write(outputBasePath + ".uasset");
-
-        Console.WriteLine($"Saved modified asset to:\n  -> {outputBasePath}.uasset\n  -> {outputBasePath}.uexp");
 
 
 
 
 
-        // =========================================================================
-        // STEP 4: Package into PAK file using repak (UE 4.24 / V8B)
-        // =========================================================================
-        Console.WriteLine("[4/4] Packing modified files into .pak archive via repak...");
-
-        string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string repakExePath = Path.GetFullPath(Path.Combine(baseDir, "lib", "repak", "repak.exe"));
-
-        if (!File.Exists(repakExePath)) {
-            throw new FileNotFoundException($"Could not locate repak.exe at: {repakExePath}");
-        }
-
-        // 1. Create temporary staging directory matching internal mount structure
-        // ProjectWingman/Content/...
-        string stagingDir = Path.Combine(baseDir, "staging_mymods_p");
-        if (Directory.Exists(stagingDir)) {
-            Directory.Delete(stagingDir, true);
-        }
-
-        // Extract internal path folder directory (removes filename and leading slash if present)
-        string internalDirectory = Path.GetDirectoryName(exactInternalPath).TrimStart('\\', '/');
-        string fullStagingAssetPath = Path.Combine(stagingDir, internalDirectory);
-        Directory.CreateDirectory(fullStagingAssetPath);
-
-        // Copy generated .uasset and .uexp into staging
-        File.Copy(outputBasePath + ".uasset", Path.Combine(fullStagingAssetPath, "DB_Aircraft.uasset"), true);
-        File.Copy(outputBasePath + ".uexp", Path.Combine(fullStagingAssetPath, "DB_Aircraft.uexp"), true);
-
-        // Destination PAK output path
-        string outputPakPath = Path.GetFullPath(Path.Combine(baseDir, "ProjectWingman-SpeedMod_P.pak"));
-
-        // 2. Execute repak via ProcessStartInfo
-        var startInfo = new ProcessStartInfo {
-            FileName = repakExePath,
-            Arguments = $"pack -v --version V8B --compression Zlib \"{stagingDir}\" \"{outputPakPath}\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        };
-
-        using (var process = Process.Start(startInfo)) {
-            string stdout = process.StandardOutput.ReadToEnd();
-            string stderr = process.StandardError.ReadToEnd();
-            process.WaitForExit();
-
-            if (process.ExitCode != 0) {
-                throw new Exception($"repak execution failed with code {process.ExitCode}:\n{stderr}");
-            }
-            Console.WriteLine(stdout);
-        }
-
-        // Clean up staging folder
-        Directory.Delete(stagingDir, true);
-        Console.WriteLine($"Successfully generated PAK at:\n -> {outputPakPath}");
 
 
+
+
+        //    string paksDirectory = @"G:\SteamLibrary\steamapps\common\Project Wingman\ProjectWingman\Content\Paks";
+        //    string targetFileName = "DB_Aircraft.uasset";
+
+        //    // =========================================================================
+        //    // STEP 1: Extract .uasset and .uexp with CUE4Parse
+        //    // =========================================================================
+        //    Console.WriteLine("[1/3] Extracting target asset with CUE4Parse...");
+
+        //    var provider = new DefaultFileProvider(
+        //        directory: paksDirectory,
+        //        searchOption: SearchOption.TopDirectoryOnly,
+        //        versions: new VersionContainer(EGame.GAME_UE4_24), // Project Wingman uses UE 4.27
+        //        pathComparer: StringComparer.OrdinalIgnoreCase
+        //    );
+
+        //    // Register specific PAK file if present
+        //    FileInfo specificPak = new FileInfo(Path.Combine(paksDirectory, "ProjectWingman-WindowsNoEditor.pak"));
+        //    if (specificPak.Exists) {
+        //        provider.RegisterVfs(specificPak);
+        //    }
+
+        //    // Initialize and index VFS contents
+        //    provider.Initialize();
+        //    provider.Mount();
+
+        //    Console.WriteLine($"Mounted {provider.MountedVfs.Count} PAK file(s).");
+        //    Console.WriteLine($"Total files found across all PAKs: {provider.Files.Count}\n");
+
+        //    // Locate the primary .uasset file dynamically in provider.Files
+        //    var matchedEntry = provider.Files.FirstOrDefault(file => file.Key.EndsWith(targetFileName, StringComparison.OrdinalIgnoreCase));
+
+        //    if (matchedEntry.Value == null) {
+        //        throw new FileNotFoundException($"Could not locate '{targetFileName}' inside mounted PAK files.");
+        //    }
+
+        //    string exactInternalPath = matchedEntry.Key;
+        //    Console.WriteLine($"Found target path in PAK: {exactInternalPath}");
+
+        //    // Resolve base internal path without extension
+        //    string basePathWithoutExtension = exactInternalPath.Substring(0, exactInternalPath.LastIndexOf('.'));
+
+        //    // Extract .uasset bytes
+        //    byte[] uassetBytes = provider.SaveAsset(basePathWithoutExtension + ".uasset");
+        //    if (uassetBytes == null) {
+        //        throw new InvalidOperationException($"Failed to extract .uasset data for {basePathWithoutExtension}.uasset");
+        //    }
+
+        //    // Extract .uexp bytes if present
+        //    byte[] uexpBytes = null;
+        //    string uexpPath = basePathWithoutExtension + ".uexp";
+        //    if (provider.Files.ContainsKey(uexpPath)) {
+        //        uexpBytes = provider.SaveAsset(uexpPath);
+        //    }
+
+        //    Console.WriteLine($"Successfully extracted .uasset ({uassetBytes.Length} bytes) and .uexp ({uexpBytes?.Length ?? 0} bytes).");
+
+        //    // =========================================================================
+        //    // STEP 2: Combine Streams and Parse with UAssetAPI
+        //    // =========================================================================
+        //    Console.WriteLine("[2/3] Modifying asset properties with UAssetAPI...");
+
+        //    // Combine .uasset + .uexp into one continuous stream for UAssetAPI
+        //    MemoryStream combinedStream = new MemoryStream();
+        //    combinedStream.Write(uassetBytes, 0, uassetBytes.Length);
+        //    if (uexpBytes != null) {
+        //        combinedStream.Write(uexpBytes, 0, uexpBytes.Length);
+        //    }
+        //    combinedStream.Position = 0; // Reset stream pointer to beginning
+
+        //    // Instantiate UAsset with UE4.27
+        //    UAsset asset;
+        //    using (AssetBinaryReader reader = new AssetBinaryReader(combinedStream)) {
+        //        asset = new UAsset(reader, EngineVersion.VER_UE4_24);
+        //    }
+
+        //    Console.WriteLine($"Successfully loaded asset! Found {asset.Exports.Count} export(s).");
+
+        //    // Modify DataTable export properties
+        //    foreach (Export export in asset.Exports) {
+        //        if (export is DataTableExport dataTableExport) {
+        //            // DataTable row data lives inside dataTableExport.Table.Data
+        //            foreach (StructPropertyData row in dataTableExport.Table.Data) {
+        //                foreach (PropertyData rowProp in row.Value) {
+        //                    ModifyPropertyRecursive(rowProp);
+        //                }
+        //            }
+        //        }
+        //    }
+
+        //    // =========================================================================
+        //    // STEP 3: Save the modified asset back out
+        //    // =========================================================================
+        //    Console.WriteLine("[3/3] Saving modified asset...");
+
+        //    string baseFileName = Path.GetFileNameWithoutExtension(targetFileName);
+        //    string outputBasePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Modified_" + baseFileName);
+
+        //    asset.UseSeparateBulkDataFiles = true;
+
+        //    // Write() automatically creates "Modified_DB_Aircraft.uasset" and "Modified_DB_Aircraft.uexp"
+        //    asset.Write(outputBasePath + ".uasset");
+
+        //    Console.WriteLine($"Saved modified asset to:\n  -> {outputBasePath}.uasset\n  -> {outputBasePath}.uexp");
+
+
+
+
+
+        //    // =========================================================================
+        //    // STEP 4: Package into PAK file using repak (UE 4.24 / V8B)
+        //    // =========================================================================
+        //    Console.WriteLine("[4/4] Packing modified files into .pak archive via repak...");
+
+        //    string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        //    string repakExePath = Path.GetFullPath(Path.Combine(baseDir, "lib", "repak", "repak.exe"));
+
+        //    if (!File.Exists(repakExePath)) {
+        //        throw new FileNotFoundException($"Could not locate repak.exe at: {repakExePath}");
+        //    }
+
+        //    // 1. Create temporary staging directory matching internal mount structure
+        //    // ProjectWingman/Content/...
+        //    string stagingDir = Path.Combine(baseDir, "staging_mymods_p");
+        //    if (Directory.Exists(stagingDir)) {
+        //        Directory.Delete(stagingDir, true);
+        //    }
+
+        //    // Extract internal path folder directory (removes filename and leading slash if present)
+        //    string internalDirectory = Path.GetDirectoryName(exactInternalPath).TrimStart('\\', '/');
+        //    string fullStagingAssetPath = Path.Combine(stagingDir, internalDirectory);
+        //    Directory.CreateDirectory(fullStagingAssetPath);
+
+        //    // Copy generated .uasset and .uexp into staging
+        //    File.Copy(outputBasePath + ".uasset", Path.Combine(fullStagingAssetPath, "DB_Aircraft.uasset"), true);
+        //    File.Copy(outputBasePath + ".uexp", Path.Combine(fullStagingAssetPath, "DB_Aircraft.uexp"), true);
+
+        //    // Destination PAK output path
+        //    string outputPakPath = Path.GetFullPath(Path.Combine(baseDir, "ProjectWingman-SpeedMod_P.pak"));
+
+        //    // 2. Execute repak via ProcessStartInfo
+        //    var startInfo = new ProcessStartInfo {
+        //        FileName = repakExePath,
+        //        Arguments = $"pack -v --version V8B --compression Zlib \"{stagingDir}\" \"{outputPakPath}\"",
+        //        UseShellExecute = false,
+        //        RedirectStandardOutput = true,
+        //        RedirectStandardError = true,
+        //        CreateNoWindow = true
+        //    };
+
+        //    using (var process = Process.Start(startInfo)) {
+        //        string stdout = process.StandardOutput.ReadToEnd();
+        //        string stderr = process.StandardError.ReadToEnd();
+        //        process.WaitForExit();
+
+        //        if (process.ExitCode != 0) {
+        //            throw new Exception($"repak execution failed with code {process.ExitCode}:\n{stderr}");
+        //        }
+        //        Console.WriteLine(stdout);
+        //    }
+
+        //    // Clean up staging folder
+        //    Directory.Delete(stagingDir, true);
+        //    Console.WriteLine($"Successfully generated PAK at:\n -> {outputPakPath}");
+
+
+        //}
+
+        //public static void ModifyPropertyRecursive(PropertyData prop) {
+        //    string propName = prop.Name.ToString();
+
+        //    // 1. Process target Float Properties
+        //    if (prop is FloatPropertyData floatProp) {
+        //        // MaxSpeed: * 20
+        //        if (propName.StartsWith("MaxSpeed", StringComparison.OrdinalIgnoreCase)) {
+        //            floatProp.Value *= 20f;
+        //            Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+        //        }
+        //        // Acceleration: * 25
+        //        else if (propName.StartsWith("Acceleration", StringComparison.OrdinalIgnoreCase)) {
+        //            floatProp.Value *= 25f;
+        //            Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+        //        }
+        //        // InterpSpeed: + 5
+        //        else if (propName.StartsWith("InterpSpeed", StringComparison.OrdinalIgnoreCase)) {
+        //            floatProp.Value += 5f;
+        //            Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+        //        }
+        //        // RollSpeed: * 5
+        //        else if (propName.StartsWith("RollSpeed", StringComparison.OrdinalIgnoreCase)) {
+        //            floatProp.Value *= 5f;
+        //            Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+        //        }
+        //        // TurnSpeed: * 3
+        //        else if (propName.StartsWith("TurnSpeed", StringComparison.OrdinalIgnoreCase)) {
+        //            floatProp.Value *= 3f;
+        //            Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+        //        }
+        //        // YawSpeed: * 15
+        //        else if (propName.StartsWith("YawSpeed", StringComparison.OrdinalIgnoreCase)) {
+        //            floatProp.Value *= 15f;
+        //            Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+        //        }
+        //        return;
+        //    }
+
+        //    // 2. Traversal logic for nested structures/arrays
+        //    if (prop is StructPropertyData structProp) {
+        //        foreach (PropertyData childProp in structProp.Value) {
+        //            ModifyPropertyRecursive(childProp);
+        //        }
+        //    }
+        //    else if (prop is ArrayPropertyData arrayProp) {
+        //        foreach (PropertyData elemProp in arrayProp.Value) {
+        //            ModifyPropertyRecursive(elemProp);
+        //        }
+        //    }
     }
+
 
     public static void ModifyPropertyRecursive(PropertyData prop) {
         string propName = prop.Name.ToString();
 
         // 1. Process target Float Properties
         if (prop is FloatPropertyData floatProp) {
-            // MaxSpeed: * 20
             if (propName.StartsWith("MaxSpeed", StringComparison.OrdinalIgnoreCase)) {
                 floatProp.Value *= 20f;
-                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+                Console.WriteLine($"  [Patch] {propName}: updated to {floatProp.Value}");
             }
-            // Acceleration: * 25
             else if (propName.StartsWith("Acceleration", StringComparison.OrdinalIgnoreCase)) {
                 floatProp.Value *= 25f;
-                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+                Console.WriteLine($"  [Patch] {propName}: updated to {floatProp.Value}");
             }
-            // InterpSpeed: + 5
             else if (propName.StartsWith("InterpSpeed", StringComparison.OrdinalIgnoreCase)) {
                 floatProp.Value += 5f;
-                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+                Console.WriteLine($"  [Patch] {propName}: updated to {floatProp.Value}");
             }
-            // RollSpeed: * 5
             else if (propName.StartsWith("RollSpeed", StringComparison.OrdinalIgnoreCase)) {
                 floatProp.Value *= 5f;
-                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+                Console.WriteLine($"  [Patch] {propName}: updated to {floatProp.Value}");
             }
-            // TurnSpeed: * 3
             else if (propName.StartsWith("TurnSpeed", StringComparison.OrdinalIgnoreCase)) {
                 floatProp.Value *= 3f;
-                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+                Console.WriteLine($"  [Patch] {propName}: updated to {floatProp.Value}");
             }
-            // YawSpeed: * 15
             else if (propName.StartsWith("YawSpeed", StringComparison.OrdinalIgnoreCase)) {
                 floatProp.Value *= 15f;
-                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+                Console.WriteLine($"  [Patch] {propName}: updated to {floatProp.Value}");
             }
             return;
         }

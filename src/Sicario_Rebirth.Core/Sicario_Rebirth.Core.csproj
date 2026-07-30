@@ -5,12 +5,14 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
-	<ItemGroup>
-	  <None Remove="UnrealPak.exe" />
-	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="CUE4Parse" Version="1.2.2" />
 		<PackageReference Include="UAssetAPI" Version="1.1.0" />
+	</ItemGroup>
+
+	<ItemGroup>
+	  <ProjectReference Include="..\Sicario_Rebirth.AssetPatcher\Sicario_Rebirth.AssetPatcher.csproj" />
+	  <ProjectReference Include="..\Sicario_Rebirth.Parser\Sicario_Rebirth.Parser.csproj" />
 	</ItemGroup>
 </Project>
