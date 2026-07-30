@@ -10,8 +10,4 @@
 		<PackageReference Include="CUE4Parse" Version="1.2.2" />
 		<PackageReference Include="UAssetAPI" Version="1.1.0" />
 	</ItemGroup>
-
-	<ItemGroup>
-		<ProjectReference Include="..\..\lib\NetPak\NetPak\NetPak.csproj" />
-	</ItemGroup>
 </Project>
