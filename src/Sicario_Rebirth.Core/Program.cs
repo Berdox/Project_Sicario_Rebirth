@@ -285,99 +285,108 @@ class Program {
 
 
         // =========================================================================
-        // STEP 4: Package into PAK file using UnrealPak.exe
+        // STEP 4: Package into PAK file using repak (UE 4.24 / V8B)
         // =========================================================================
-        Console.WriteLine("[4/4] Packing modified files into .pak archive...");
+        Console.WriteLine("[4/4] Packing modified files into .pak archive via repak...");
 
-        // 1. Resolve paths
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-        string unrealPakPath = Path.GetFullPath(Path.Combine(baseDir, "lib", "UnrealPakTool", "UnrealPak.exe"));
+        string repakExePath = Path.GetFullPath(Path.Combine(baseDir, "lib", "repak", "repak.exe"));
 
-        if (!File.Exists(unrealPakPath)) {
-            throw new FileNotFoundException($"Could not locate UnrealPak.exe at: {unrealPakPath}");
+        if (!File.Exists(repakExePath)) {
+            throw new FileNotFoundException($"Could not locate repak.exe at: {repakExePath}");
         }
 
-        // Destination PAK output path (placed inside your staging directory or output folder)
-        string outputPakPath = Path.GetFullPath(Path.Combine(baseDir, "ProjectWingman-PrezUnlock_P.pak"));
-
-        // Base path to your generated files
-        string modifiedUassetPath = Path.GetFullPath(outputBasePath + ".uasset");
-        string modifiedUexpPath = Path.GetFullPath(outputBasePath + ".uexp");
-
-        // 2. Define internal Unreal engine target mount paths
-        // Note: Mount paths must use forward slashes (/) and start with standard game relative paths!
-        // Example internal path base: "ProjectWingman/Content/ProjectWingman/Blueprints/Data/AircraftData/DB_Aircraft"
-        string internalBasePath = exactInternalPath.Substring(0, exactInternalPath.LastIndexOf('.'));
-        string internalUassetPath = internalBasePath + ".uasset";
-        string internalUexpPath = internalBasePath + ".uexp";
-
-        // 3. Create response file for UnrealPak.exe
-        string responseFilePath = Path.GetFullPath(Path.Combine(baseDir, "pak_file_list.txt"));
-
-        using (StreamWriter writer = new StreamWriter(responseFilePath)) {
-            // Format: "LocalPathOnDisk" "MountPathInGame"
-            writer.WriteLine($"\"{modifiedUassetPath}\" \"../../../{internalUassetPath}\"");
-            writer.WriteLine($"\"{modifiedUexpPath}\" \"../../../{internalUexpPath}\"");
+        // 1. Create temporary staging directory matching internal mount structure
+        // ProjectWingman/Content/...
+        string stagingDir = Path.Combine(baseDir, "staging_mymods_p");
+        if (Directory.Exists(stagingDir)) {
+            Directory.Delete(stagingDir, true);
         }
 
-        Console.WriteLine($"Generated response file at: {responseFilePath}");
+        // Extract internal path folder directory (removes filename and leading slash if present)
+        string internalDirectory = Path.GetDirectoryName(exactInternalPath).TrimStart('\\', '/');
+        string fullStagingAssetPath = Path.Combine(stagingDir, internalDirectory);
+        Directory.CreateDirectory(fullStagingAssetPath);
 
-        // Ensure minimal engine directory structure exists beside UnrealPak.exe
-        string engineConfigDir = Path.Combine(Path.GetDirectoryName(unrealPakPath), "Engine", "Config");
-        Directory.CreateDirectory(engineConfigDir);
-        string baseEngineIni = Path.Combine(engineConfigDir, "BaseEngine.ini");
+        // Copy generated .uasset and .uexp into staging
+        File.Copy(outputBasePath + ".uasset", Path.Combine(fullStagingAssetPath, "DB_Aircraft.uasset"), true);
+        File.Copy(outputBasePath + ".uexp", Path.Combine(fullStagingAssetPath, "DB_Aircraft.uexp"), true);
 
-        if (!File.Exists(baseEngineIni)) {
-            File.WriteAllText(baseEngineIni, "[DerivedDataBackendGraph]\nMinimumFreeSpaceGigaBytes=1\n");
-        }
+        // Destination PAK output path
+        string outputPakPath = Path.GetFullPath(Path.Combine(baseDir, "ProjectWingman-SpeedMod_P.pak"));
 
-        // 4. Run UnrealPak.exe process with -NoDDC
-        ProcessStartInfo startInfo = new ProcessStartInfo {
-            FileName = unrealPakPath,
-            // -NoDDC prevents DerivedDataCache crashes in standalone builds
-            // -compressed uses the modern compression flag
-            Arguments = $"\"{outputPakPath}\" -create=\"{responseFilePath}\" -compressed -NoDDC",
-            WorkingDirectory = Path.GetDirectoryName(unrealPakPath), // Set working dir to UnrealPak.exe folder
+        // 2. Execute repak via ProcessStartInfo
+        var startInfo = new ProcessStartInfo {
+            FileName = repakExePath,
+            Arguments = $"pack -v --version V8B --compression Zlib \"{stagingDir}\" \"{outputPakPath}\"",
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true
         };
 
-        using (Process process = new Process { StartInfo = startInfo }) {
-            process.Start();
-
-            string output = process.StandardOutput.ReadToEnd();
-            string error = process.StandardError.ReadToEnd();
+        using (var process = Process.Start(startInfo)) {
+            string stdout = process.StandardOutput.ReadToEnd();
+            string stderr = process.StandardError.ReadToEnd();
             process.WaitForExit();
 
-            if (process.ExitCode == 0) {
-                Console.WriteLine($"\n[SUCCESS] Successfully created PAK file at:\n  -> {outputPakPath}");
+            if (process.ExitCode != 0) {
+                throw new Exception($"repak execution failed with code {process.ExitCode}:\n{stderr}");
             }
-            else {
-                Console.WriteLine($"\n[ERROR] UnrealPak failed with exit code {process.ExitCode}:");
-                Console.WriteLine(error);
-                Console.WriteLine(output);
-            }
+            Console.WriteLine(stdout);
         }
+
+        // Clean up staging folder
+        Directory.Delete(stagingDir, true);
+        Console.WriteLine($"Successfully generated PAK at:\n -> {outputPakPath}");
+
+
     }
 
-   public static void ModifyPropertyRecursive(PropertyData prop) {
-        // Check if we reached the target IntProperty "PilotCount"
-        if (prop.Name.ToString().Contains("PilotCount") && prop is IntPropertyData intProp) {
-            // Change PilotCount from 1 to 2
-            intProp.Value = 2;
-            Console.WriteLine($"Updated {prop.Name} to {intProp.Value}");
+    public static void ModifyPropertyRecursive(PropertyData prop) {
+        string propName = prop.Name.ToString();
+
+        // 1. Process target Float Properties
+        if (prop is FloatPropertyData floatProp) {
+            // MaxSpeed: * 20
+            if (propName.StartsWith("MaxSpeed", StringComparison.OrdinalIgnoreCase)) {
+                floatProp.Value *= 20f;
+                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+            }
+            // Acceleration: * 25
+            else if (propName.StartsWith("Acceleration", StringComparison.OrdinalIgnoreCase)) {
+                floatProp.Value *= 25f;
+                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+            }
+            // InterpSpeed: + 5
+            else if (propName.StartsWith("InterpSpeed", StringComparison.OrdinalIgnoreCase)) {
+                floatProp.Value += 5f;
+                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+            }
+            // RollSpeed: * 5
+            else if (propName.StartsWith("RollSpeed", StringComparison.OrdinalIgnoreCase)) {
+                floatProp.Value *= 5f;
+                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+            }
+            // TurnSpeed: * 3
+            else if (propName.StartsWith("TurnSpeed", StringComparison.OrdinalIgnoreCase)) {
+                floatProp.Value *= 3f;
+                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+            }
+            // YawSpeed: * 15
+            else if (propName.StartsWith("YawSpeed", StringComparison.OrdinalIgnoreCase)) {
+                floatProp.Value *= 15f;
+                Console.WriteLine($"[Patch] {propName}: updated to {floatProp.Value}");
+            }
             return;
         }
 
-        // If it's a nested struct (like BoneDetails), drill down into its child properties
+        // 2. Traversal logic for nested structures/arrays
         if (prop is StructPropertyData structProp) {
             foreach (PropertyData childProp in structProp.Value) {
                 ModifyPropertyRecursive(childProp);
             }
         }
-        // If it's an array of structs/properties, loop through elements
         else if (prop is ArrayPropertyData arrayProp) {
             foreach (PropertyData elemProp in arrayProp.Value) {
                 ModifyPropertyRecursive(elemProp);

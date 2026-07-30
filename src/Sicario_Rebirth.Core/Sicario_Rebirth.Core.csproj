@@ -5,6 +5,9 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
+	<ItemGroup>
+	  <None Remove="UnrealPak.exe" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<PackageReference Include="CUE4Parse" Version="1.2.2" />
